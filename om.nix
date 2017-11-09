@@ -8,6 +8,7 @@ let
   makeNixIndex = nixpkgs: runCommand "nix-index-db" {
     buildInputs = [ nix-index nixStable ];
     inherit nixpkgs;
+    NIX_REMOTE = builtins.getEnv "NIX_REMOTE";
   } ''
 mkdir $out
 nix-index -d $out -f $nixpkgs 2> /dev/null
@@ -30,17 +31,17 @@ locate="nix-locate -d $db -w --top-level --at-root --no-group"
 $locate -t x -r '/bin/[a-z-_]+' | sed 's/,//g' | sed -E 's/ +/,/g' > $out/bins
   '');
 
-  omnix = { channel,
-            url ? "https://nixos.org/channels/${channel}/nixexprs.tar.xz",
-            nixpkgs ? fetchTarball url,
+  omnix = { nixpkgs ? <nixos>,
             apps ? findApps (makeNixIndex nixpkgs) }:
   stdenv.mkDerivation rec {
     name = "omnix";
 
-    inherit url nixpkgs apps;
+    inherit nixpkgs apps;
 
     buildInputs = [ nixStable curl ];
     unpackPhase = "true";
+
+    NIX_CACHE="http://cache.nixos.org";
 
     installPhase = ''
 # Install wrapper
@@ -51,13 +52,13 @@ wrapper=$out/share/omnix/omnix.sh
 sh=${bash}/bin/sh
 
 # Setup app directories
+'' + stdenv.lib.optionalString stdenv.isLinux ''
 mkdir -p $out/share/applications
 mkdir -p $out/share/icons
+'' + stdenv.lib.optionalString stdenv.isDarwin ''
 mkdir -p $out/Applications
+'' + ''
 mkdir -p $out/bin
-
-NIX_CACHE="http://cache.nixos.org"
-
 # Get all of the binaries
 cat $apps/bins | while read line; do
   attr=$(echo "$line" | cut -d, -f1)
@@ -94,6 +95,10 @@ cat $apps/apps | while read line; do
     cp -RT share/applications $out/share/applications
   fi
 
+  if [ -d share/mime ]; then
+    cp -RT share/mime $out/share/mime
+  fi
+
   if [ -d share/icons ]; then
     cp -RT share/icons $out/share/icons
   fi
@@ -123,6 +128,8 @@ EOF
   fi
 '' + ''
   cd ..
+
+  rm -rf $hash
 done
 '';
 
@@ -132,4 +139,4 @@ done
 
   };
 in
-  omnix { channel = "nixpkgs-unstable"; }
+  omnix
